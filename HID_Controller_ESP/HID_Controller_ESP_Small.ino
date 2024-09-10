@@ -2,16 +2,16 @@
 #include <time.h>
 #include <UniversalTelegramBot.h>
 
-const char* ssid = "TK AL-YAZID";//your-ssid
-const char* password = "abyazid1";//your-password
+const char* ssid = "SSID";//your-ssid
+const char* password = "PASS";//your-password
 
-const char* ssidBackup = "Bahyyazid";//your-secondary-ssid
-const char* passwordBackup = "bahyyazid1234";//your-secondary-password
+const char* ssidBackup = "SSIDBACKUP";//your-secondary-ssid
+const char* passwordBackup = "PASSBACKUP";//your-secondary-password
 
 WiFiServer server(80);
 
-#define BOT_TOKEN "6954813387:AAEKT8dJ5voY8VDdoRebMxWyXwRvfmznyDs"
-#define CHAT_ID "1875645986"
+#define BOT_TOKEN "YOURBOTTOKEN"
+#define CHAT_ID "YOURCHATID"
 const unsigned long BOT_MTBS = 1000; // mean time between scan messages
 
 X509List cert(TELEGRAM_CERTIFICATE_ROOT);
