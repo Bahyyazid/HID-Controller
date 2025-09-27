@@ -77,7 +77,7 @@ void setup()
   for (i <= 20; WiFi.status() != WL_CONNECTED ; i++) {
     if (i < 30) {
       delay(1000);
-      if (p == 3){
+      if (p >= 3){
       Photoresistor();}
       Serial.print(".");
     } else if (i == 30) {
@@ -85,7 +85,7 @@ void setup()
       WiFi.begin(ssidBackup, passwordBackup);
     } else if (i > 30 && i < 60) {
       delay(1000);
-      if (p == 3){
+      if (p >= 3){
       Photoresistor();}
       Serial.print(".");
     } else if (i == 60) {
