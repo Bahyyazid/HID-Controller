@@ -24,6 +24,7 @@ unsigned long bot_lasttime; // last time messages' scan has been done
 
 int Status = 0;
 int i = 0;
+int p = 0;
 int DELAY = 1000;
 
 int beep = 0;
@@ -74,23 +75,29 @@ void setup()
   Serial.print("Connecting");
   WiFi.begin(ssid, password);
   for (i <= 20; WiFi.status() != WL_CONNECTED ; i++) {
-    if (i < 20) {
-      delay(500);
+    if (i < 30) {
+      delay(1000);
+      if (p == 3){
+      Photoresistor();}
       Serial.print(".");
-    } else if (i == 20) {
+    } else if (i == 30) {
       Serial.println("Connecting to Wifi Failed, looking for mobile hotspot");
       WiFi.begin(ssidBackup, passwordBackup);
-    } else if (i > 20 && i < 40) {
-      delay(500);
+    } else if (i > 30 && i < 60) {
+      delay(1000);
+      if (p == 3){
+      Photoresistor();}
       Serial.print(".");
-    } else if (i == 40) {
+    } else if (i == 60) {
       Serial.println("Connecting to Wifi Failed again, restarting module");
+    p++;
     }
   }
   i = 0;
   Serial.println("WiFi connected");
   server.begin();  // Starts the Server
   Serial.println("Server started");
+  p = 0;
 
   Serial.print("IP Address of network: "); // Prints IP address on Serial Monitor
   Serial.println(WiFi.localIP().toString());
