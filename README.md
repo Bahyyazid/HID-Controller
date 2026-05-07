@@ -1,6 +1,6 @@
 Control your HID Streetlight by using 6 relays.
 
-Ideally, a 4-channel solid-state relay should be used for the 4 x 36-watt Philips BTA Fluorescent Ballast and 2 relay for the 18-watt Philips BPL and superimposed ignitor on neutral side. This doesn't need an additional relay since it uses a series ignitor.
+Ideally, a 4-channel solid-state relay should be used for the 4 x 36-watt Philips BTA Fluorescent Ballast, 2 relays for the 18-watt Philips BPL, and a superimposed ignitor on the neutral side. This doesn't need an additional relay since it uses a series ignitor.
 
 For the large version, use a 4-channel 30A relay: 1 relay for a 100-watt Philips BSN ballast, 1 relay for a 125-watt Philips BHL Ballast, 1 relay to switch on/off the BAG 250W/400W Ballast, and 1 relay to switch between 250W (NO) and 400W (NC) Mode.
 You can use an extra Relay to switch on and off the semi-parallel ignitor and connect with a 100W ballast relay signal.
@@ -11,9 +11,9 @@ For the large version, I'm going to try on Philips HRC 511 in the future.
 
 Update on May 3 2026:
 
-Added Additional Relay for Ignitor Deactivation.
+Added an additional relay for Ignitor Deactivation.
 
 
 CAUTION!!
-THIS CAUSE BALLAST GET HOTTER THAN PRIMARILY USE BY ONE LAMP ONE BALLAST!! MAKE SURE YOU KNOW WHAT YOU'RE DOING!!
-UNLESS YOU TRYING TO SWAP THE BALLAST TERMINAL TO THE HEAT RESISTANCE SCREW TERMINAL OR ADD ADDITIONAL COOLING FAN.
+THIS CAUSES THE BALLAST TO GET HOTTER THAN PRIMARILY USED BY ONE LAMP ONE BALLAST!! MAKE SURE YOU KNOW WHAT YOU'RE DOING!!
+UNLESS YOU ARE TRYING TO SWAP THE BALLAST TERMINAL TO THE HEAT RESISTANCE SCREW TERMINAL OR ADD AN ADDITIONAL COOLING FAN.
