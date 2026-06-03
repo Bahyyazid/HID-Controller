@@ -9,6 +9,8 @@ For the small version, the best fixture that I can use is a Philips HRC 502 Stre
 
 For the large version, I'm going to try on Philips HRC 511 in the future.
 
+-Started from December 2019 by Bahyyazid R H-
+
 Update on May 3 2026:
 
 Added an additional relay for Ignitor Deactivation.
