@@ -26,4 +26,4 @@ UNLESS YOU ARE TRYING TO SWAP THE BALLAST TERMINAL TO THE HEAT RESISTANCE SCREW 
 
 <<<<<DEMO>>>>>
 
-https://www.youtube.com/watch?v=h2Lb3PF-3S8&t=293s
+[Watch the demo on YouTube](https://www.youtube.com/watch?v=h2Lb3PF-3S8)
