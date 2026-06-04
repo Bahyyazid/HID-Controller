@@ -4,6 +4,10 @@ Ideally, a 4-channel solid-state relay should be used for the 4 x 36-watt Philip
 
 ![Luminaire Diagram](Luminaire_connection.png)
 
+With Microcontroller and Power Factor Capacitor for the same schematic
+
+![ESP Capacitor Diagram](ESP_connection.png)
+
 For the large version, use a 4-channel 30A relay: 1 relay for a 100-watt Philips BSN ballast, 1 relay for a 125-watt Philips BHL Ballast, 1 relay to switch on/off the BAG 250W/400W Ballast, and 1 relay to switch between 250W (NO) and 400W (NC) Mode.
 You can use an extra Relay to switch on and off the semi-parallel ignitor and connect with a 100W ballast relay signal.
 
