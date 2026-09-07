@@ -1,27 +1,20 @@
-#include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
-#include <time.h>
-#include <UniversalTelegramBot.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <WebServer.h>
 #include <EEPROM.h>
-
-
-ESP8266WiFiMulti wifiMulti;
-
-
+#include <UniversalTelegramBot.h>
+#include <time.h>
+#include "webpage.h"
 
 WiFiServer server(80);
 
-#define BOT_TOKEN "INSERT YOUT BOT TOKEN HERE"
-#define CHAT_ID "INSERT YOUT BOT TOKEN HERE"
+#define BOT_TOKEN "INSERT BOT TOKEN HERE" //Telegram Bot Credentials
+#define CHAT_ID "INSERT CHAT ID HERE"
 const unsigned long BOT_MTBS = 900; // mean time between scan messages
 
-X509List cert(TELEGRAM_CERTIFICATE_ROOT);
 WiFiClientSecure secured_client;
 UniversalTelegramBot bot(BOT_TOKEN, secured_client);
 unsigned long bot_lasttime; // last time messages' scan has been done
-
-
-
 
 int Autostate;
 int Photostate;
@@ -29,193 +22,247 @@ int ignState;
 int i = 0;
 int p = 0;
 int DELAY = 900;
+int limit;
 
 int beep = 0;
 int Status = 1;
-
+int lampState;
 
 int timezone = 7 * 3600;
 int dst = 0;
 
-bool OFF = HIGH;
-bool ON = LOW;
-bool nON = LOW;
-bool nOFF = HIGH;
+bool OFF = LOW; //Main 4 relays
+bool ON = HIGH;
+bool nON = HIGH; //Additional 2 relays
+bool nOFF = LOW;
 
 String Wattage;
 
-#define red  D8
-#define green  D6
-#define blue  D7
+#define BlTemp 35      // Ballast Temperature
+#define Photo  32     // Photoresistor
+#define LaTemp 34     // Lamp Compartment Temperature
 
-#define one  D0       // 18 Watt Ballast
-#define two  D1       // 36 Watt Ballast #1
-#define three  D2     // 36 Watt Ballast #2
-#define four  D3      // 36 Watt Ballast #3
-#define five  D4      // 36 Watt Ballast #4
-#define ignPin  D5    // Ignitor
-#define Photo  A0     // Photoresistor
+// Temperature ADC calibration.
+#define TEMP_ADC_0C    2000
+#define TEMP_ADC_100C  150
 
-int A = 200;        //  6 PM
-int B = 550;       // 5 30 PM
-int C = 650;   //  Rain
-int Dif = 100;    // Value 
+#define red 21        //RGB Led
+#define green  22
+#define blue  23
+#define ignPin  15     // Ignitor
+#define one  2       // 18 Watt Ballast
+#define two  0       // 36 Watt Ballast #1 s
+#define three 16     // 36 Watt Ballast #2
+#define four  4       // 36 Watt Ballast #3
+#define five  17      // 36 Watt Ballast #4
+
+int A = 300;       // Rain
+int B = 1000;       // 5 30 PM
+int C = 2700;       // 6PM
+int Dif = 100;     // Diff Value 
 
 int w = 0;
 
+void WifiHunt() {  //Wifi Cedentials, use it as much as you can. Make sure your Home Wifi is on the top so it quickly connects the luminaire.
+  const char* ssidList[] = {
+    "SSID1",
+    "SSID2",
+    "SSID3"
+  };
 
+  const char* passList[] = {
+    "Password1",
+    "Password2",
+    "Password3"
+  };
 
-void WifiHunt(){
-   //add more WiFi 
-  const char* ssidList[] = {"WIFI NAME 1", "WIFI NAME 2", "ETC"}; //add WiFi Name Here
-  const char* passList[] = {"WIFI NAME 1 PASSWORD", "WIFI NAME 2 PASSWORD", "ETC PASSWORD"}; //add WiFi Pass Here
   const int wifiCount = sizeof(ssidList) / sizeof(ssidList[0]);
-  
+
   Serial.print("Connecting to ");
   Serial.print(w);
   Serial.print(". ");
   Serial.println(ssidList[w]);
+
   WiFi.begin(ssidList[w], passList[w]);
-  for (i >=0 ; WiFi.status() != WL_CONNECTED ; i++) {
-    if (i % 10 == 0){     //Find another WiFi if can't connect for 10 seconds
-      if(w + 1 < wifiCount){
-       w++;
-      } else if (w + 1 == wifiCount){
-       w = 0; 
+
+  unsigned long wifiStartTime = millis();
+
+  while (WiFi.status() != WL_CONNECTED) {
+
+    if (millis() - wifiStartTime >= 10000) {
+
+      wifiStartTime = millis();
+
+      if (w + 1 < wifiCount) {
+        w++;
+      } else {
+        w = 0;
       }
-      WiFi.begin(ssidList[w], passList[w]); 
-      if (p==3){
-        Serial.print("Connecting to Wifi Failed, attempting connection to ");
-        Serial.print(w);
-        Serial.print(". ");
-        Serial.println(ssidList[w]);
-      }else if (p>3){
-        Serial.print("Connecting to Wifi Failed, attempting connection to ");
-        Serial.print(w);
-        Serial.print(". ");
-        Serial.println(ssidList[w]);
-        Serial.println(" and switching to Photoresistor mode.");   
-      }
-      
+
+      Serial.println();
+      Serial.print("10 seconds elapsed.");
+      Serial.print(" Switching to WiFi ");
+      Serial.print(w);
+      Serial.print(". ");
+      Serial.println(ssidList[w]);
+
+      WiFi.disconnect(true);
+      delay(100);
+
+      WiFi.begin(ssidList[w], passList[w]);
     }
-    if(i % 60 == 0){
-       p++;
+
+    if (millis() / 60000 > p) {
+      p++;
     }
-    if (p<3){   //Offline
-      Red(); 
-    }else if(p==3){   //Switching to Photoresistor mode if being offline for 3 minutes.
-      if(Photostate == 0){
+
+    if (p < 3) {
+      Red();
+    } else {
+      if (Photostate == 0) {
         Magenta();
         Photoresistor();
-      }else if (Photostate == 1){
-        Red();  
+      } else if (Photostate == 1) {
+        Red();
       }
-    }else if(p>3){
-      if(Photostate == 0){
-        Magenta();
-        Photoresistor();
-      }else if (Photostate == 1){
-        Red();  
-      } 
     }
+
+    Serial.print("p = ");
     Serial.print(p);
-    delay(900); 
+    Serial.print(" | WiFi = ");
+    Serial.print(w);
+    Serial.print(" | Status = ");
+    Serial.println(WiFi.status());
+
+    delay(100);
   }
+
+  Serial.println();
   Serial.print("WiFi connected to ");
   Serial.println(ssidList[w]);
-  server.begin();  // Starts the Server
+
+  server.begin();
   Serial.println("Server started");
 
-  if(Autostate == 0){
-    if(p>=3){
-      if(Photostate == 0){
+  if (Autostate == 0) {
+
+    if (p >= 3) {
+
+      if (Photostate == 0) {
+
         Green();
         Photoresistor();
-      }else if (Photostate == 1){
-        if (Status == 1){
-          Blue(); //blue when online
-        } else if (Status == 2 || Status == 3 || Status == 4 || Status == 5 || Status == 6 || Status == 7 || Status == 8){
-          Yellow(); //yellow when online
-        } else if (Status == 9){
-          White(); //white when online
-        }else if (Status == 11){
-          Green(); //blue when online
-        }  
-      } 
-    }else if (p<3){ 
-      if (Status == 1){
-      Blue(); //blue when online
-      } else if (Status == 2 || Status == 3 || Status == 4 || Status == 5 || Status == 6 || Status == 7 || Status == 8){
-      Yellow(); //yellow when online
-      } else if (Status == 9){
-      White(); //white when online
-      }else if (Status == 11){
-      Green(); //blue when online
+
+      } else if (Photostate == 1) {
+
+        if (Status == 1) Blue();
+        else if (Status >= 2 && Status <= 8) Yellow();
+        else if (Status == 9) White();
+        else if (Status == 11) Green();
       }
-    }  
-  }else if(Autostate == 1){
+
+    } else {
+
+      if (Status == 1) Blue();
+      else if (Status >= 2 && Status <= 8) Yellow();
+      else if (Status == 9) White();
+      else if (Status == 11) Green();
+    }
+
+  } else if (Autostate == 1) {
+
     Status = 11;
-    Cyan(); //Cyan when online on Auto
+    Cyan();
     Auto();
-  }else{
-    if(p>=3){
+
+  } else {
+
+    if (p >= 3) {
+
       Status = 10;
-      Green(); //green when online on phoresistor
+      Green();
       Photoresistor();
-    }else if (p<3){ 
-      if (Status == 1){
-      Blue(); //blue when online
-      } else if (Status == 2 || Status == 3 || Status == 4 || Status == 5 || Status == 6 || Status == 7 || Status == 8){
-      Yellow(); //yellow when online
-      } else if (Status == 9){
-      White(); //white when online
-      }else if (Status == 11){
-      Green(); //blue when online;
-      }
-    }  
-    EEPROM.write(0,0);
+
+    } else {
+
+      if (Status == 1) Blue();
+      else if (Status >= 2 && Status <= 8) Yellow();
+      else if (Status == 9) White();
+      else if (Status == 11) Green();
+    }
+
+    EEPROM.write(0, 0);
   }
-  Serial.print("IP Address of network: "); // Prints IP address on Serial Monitor
+
+  Serial.print("IP Address of network: ");
   Serial.println(WiFi.localIP().toString());
-  Serial.print("Copy and paste the following URL: https://");
+
+  Serial.print("Copy and paste the following URL: http://");
   Serial.print(WiFi.localIP().toString());
   Serial.println("/");
 
-  Serial.println("\nWaiting for Internet time");
+  Serial.println("\nConfiguring NTP...");
 
-  while (!time(nullptr)) {
+  configTime(
+    7 * 3600,
+    0,
+    "pool.ntp.org",
+    "time.nist.gov"
+  );
+
+  Serial.println("Waiting for Internet time");
+
+  time_t now = time(nullptr);
+  unsigned long startTime = millis();
+
+  while (now < 24 * 3600 && millis() - startTime < 15000) {
+
     Serial.print("*");
-    delay(900);
+
+    delay(500);
+
+    now = time(nullptr);
   }
-  Serial.println("\nTime response....OK");
-  configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-  secured_client.setTrustAnchors(&cert); // Add root certificate for api.telegram.org
+
+  if (now >= 24 * 3600) {
+
+    Serial.println("\nTime response....OK");
+
+  } else {
+
+    Serial.println("\nNTP time synchronization FAILED");
+  }
+
+  #if defined(ESP32)
+
+    secured_client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+
+  #elif defined(ESP8266)
+
+    static X509List cert(TELEGRAM_CERTIFICATE_ROOT);
+    secured_client.setTrustAnchors(&cert);
+
+  #endif
 }
 
-void setup()
-{
-  
-  
-  Serial.begin(115200);
-  EEPROM.begin(512);
+void setup() {
+Serial.begin(115200);
+#if defined(ESP32)
+   analogReadResolution(12);
+#endif
+EEPROM.begin(512);
   Autostate = EEPROM.read(0);
-  if (Autostate > 1){
-    Autostate = 1;
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-  }
+  if (Autostate > 1) { Autostate = 1; EEPROM.write(0,0); EEPROM.commit(); }
+  
   Photostate = EEPROM.read(1);
-  if (Photostate > 1){
-    Photostate = 1;
-    EEPROM.write(1,1);
-    EEPROM.commit(); 
-  }
+  if (Photostate > 1) { Photostate = 1; EEPROM.write(1,1); EEPROM.commit(); }
+  
   ignState = EEPROM.read(3);
-  if (ignState > 1){
-    ignState = 1;
-    EEPROM.write(3,1);
-    EEPROM.commit(); 
-  }
+  if (ignState > 1) { ignState = 1; EEPROM.write(3,1); EEPROM.commit(); }
+  
+  limit = EEPROM.read(4);
+  if (limit > 8 || limit < 4) { limit = 4; EEPROM.write(4,4); EEPROM.commit(); }
+  
   pinMode(Photo, INPUT);
   pinMode(one, OUTPUT);
   pinMode(two, OUTPUT);
@@ -227,7 +274,6 @@ void setup()
   pinMode(red, OUTPUT);
   pinMode(green, OUTPUT);
   pinMode(blue, OUTPUT);
-
  
   digitalWrite(one, nOFF);
   digitalWrite(two, OFF);
@@ -237,482 +283,391 @@ void setup()
   digitalWrite(ignPin, nOFF);
 
   WifiHunt();
- 
-}
+  Serial.println("Testing Telegram connection...");
 
+  if (bot.getMe()) {
+    Serial.println("Telegram BOT connection OK");
+  } else {
+    Serial.println("Telegram BOT connection FAILED");
+  }
+}
 
 void loop() {
-if (WiFi.status() != WL_CONNECTED){
-  WifiHunt();
-}else{  
-  if (millis() - bot_lasttime > BOT_MTBS)
-  {
-    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    if (Status == 10) {
-      Photoresistor();
-    } else if (Status == 11) {
-      Auto();
+  if (WiFi.status() != WL_CONNECTED) {
+    WifiHunt();
+  } else {  
+    static unsigned long lastAutoCheck = 0;     // Continuous background check for modes (every 1 second)
+    if (millis() - lastAutoCheck > 1000) {
+      lastAutoCheck = millis();
+      if (Status == 10) {
+        Photoresistor();
+      } else if (Status == 11) {
+        Auto();
+      }
     }
-    while (numNewMessages)
-    {
-      Serial.println("got response");
-      handleNewMessages(numNewMessages);
+    
+    if (millis() - bot_lasttime > BOT_MTBS) {     // Telegram Bot check (non-blocking)
+      int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
-      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+      Serial.print("Telegram updates: ");
+      Serial.println(numNewMessages);
+      while (numNewMessages) {
+        Serial.println("got response");
+        handleNewMessages(numNewMessages);
+        numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+      }
+      bot_lasttime = millis();
     }
+    
+    WiFiClient client = server.available();   //  Web Server check (non-blocking)
+    if (client) {
+      Serial.println("Waiting for new client");
+      while (client.connected() && !client.available()) {
+        delay(1);
+      }
 
-    bot_lasttime = millis();
-  }
+      String request = client.readStringUntil('\r');
+      Serial.println(request);
+      client.flush();
 
-  WiFiClient client = server.available();
-  if (!client)
-  {
-    return;
-  }
-  Serial.println("Waiting for new client");
-  while (!client.available())
-  {
-    delay(1);
-  }
+      // Web API endpoints
+      if (request.indexOf("GET /mode?value=") != -1) {
+        int pos = request.indexOf("GET /mode?value=") + 16;
+        int value = request.substring(pos).toInt();
 
-  String request = client.readStringUntil('\r');
-  Serial.println(request);
-  client.flush();
+        if (value >= 1 && value <= 11) {
+          Status = value;
+          if (Status == 11) {
+            Autostate = 1;
+            EEPROM.write(0, 1);
+          } else {
+            Autostate = 0;
+            EEPROM.write(0, 0);
+          }
+          EEPROM.commit();
 
+          switch (Status) {
+            case 1: SHUT();    Blue();   lampState = 0; break;
+            case 2: FIRST();   Yellow(); lampState = 1; break;
+            case 3: SECOND();  Yellow(); lampState = 2; break;
+            case 4: THIRD();   Yellow(); lampState = 3; break;
+            case 5: FOURTH();  Yellow(); lampState = 4; break;
+            case 6: FIFTH();   Yellow(); lampState = 5; break;
+            case 7: SIXTH();   Yellow(); lampState = 6; break;
+            case 8: SEVENTH(); Yellow(); lampState = 7; break;
+            case 9: NINTH();   White();  lampState = 8; break;
+            case 10: Green(); LightSensor(); break;
+            case 11: Cyan(); Auto(); break;
+          }
+        }
+      }
 
-  if (request.indexOf("/OFF") != -1) {
-    SHUT();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Blue();
-    Status = 1;
-  }
-  if (request.indexOf("/18Watt") != -1) {
-    FIRST();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Yellow();
-    Status = 2;
-  }
-  if (request.indexOf("/36Watt") != -1) {  
-    SECOND();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Yellow();
-    Status = 3;
-  }
-  if (request.indexOf("/54Watt") != -1) { 
-    THIRD();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Yellow();
-    Status = 4;
-  }
-  if (request.indexOf("/72Watt") != -1) { 
-    FOURTH();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Yellow();
-    Status = 5;
-  }
-  if (request.indexOf("/90Watt") != -1) { 
-    FIFTH();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Yellow();
-    Status = 6;
-  }
-  if (request.indexOf("/108Watt") != -1) {  
-    SIXTH();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Yellow();
-    Status = 7;
-  }
-  if (request.indexOf("/126Watt") != -1) {   
-    SEVENTH();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    Yellow();
-    Status = 8;
-  }
-  if (request.indexOf("/162Watt") != -1) {
-    NINTH();
-    EEPROM.write(0,0);
-    EEPROM.commit(); 
-    White();
-    Status = 9;
-  }
-  if (request.indexOf("/Photoresistor") != -1) {
-    Green();
-    EEPROM.write(0,0);
-    EEPROM.commit();  
-    Status = 10;
+      if (request.indexOf("GET /photo?state=") != -1) {
+        int pos = request.indexOf("GET /photo?state=") + 17;
+        int value = request.substring(pos).toInt();
+        if (value == 0 || value == 1) {
+          Photostate = value;
+          EEPROM.write(1, Photostate);
+          EEPROM.commit();
+        }
+      }
 
-  }
-  if (request.indexOf("/Auto") != -1) {
-    Cyan();
-    EEPROM.write(0,1);
-    EEPROM.commit(); 
-    Status = 11;
-  }
+      if (request.indexOf("GET /ignitor?state=") != -1) {
+        int pos = request.indexOf("GET /ignitor?state=") + 19;
+        int value = request.substring(pos).toInt();
+        if (value == 0 || value == 1) {
+          ignState = value;
+          EEPROM.write(3, ignState);
+          EEPROM.commit();
+          
+          Ignitor();
+          switch (Status) {
+            case 1: SHUT();    Blue();   lampState = 0; break;
+            case 2: FIRST();   Yellow(); lampState = 1; break;
+            case 3: SECOND();  Yellow(); lampState = 2; break;
+            case 4: THIRD();   Yellow(); lampState = 3; break;
+            case 5: FOURTH();  Yellow(); lampState = 4; break;
+            case 6: FIFTH();   Yellow(); lampState = 5; break;
+            case 7: SIXTH();   Yellow(); lampState = 6; break;
+            case 8: SEVENTH(); Yellow(); lampState = 7; break;
+            case 9: NINTH();   White();  lampState = 8; break;
+            case 10: Green(); LightSensor(); break;
+            case 11: Cyan(); Auto(); break;
+          }
+        }
+      }
 
-  /*------------------HTML Page Creation---------------------*/
+      if (request.indexOf("GET /limit?value=") != -1) {
+        int pos = request.indexOf("GET /limit?value=") + 17;
+        int value = request.substring(pos).toInt();
+        if (value >= 4 && value <= 8) {
+          limit = value;
+          EEPROM.write(4, limit);
+          EEPROM.commit();
+        }
+      }
 
-  client.println("HTTP/1.1 200 OK"); // standalone web server with an ESP8266
-  client.println("Content-Type: text/html");
-  client.println("");
-  client.println("<!DOCTYPE html>");
-  client.println("<html>");
+      // Telemetry endpoint
+      if (request.indexOf("GET /api/status") != -1) {
+        int ballastRaw = analogRead(BlTemp);
+        int lampRaw = analogRead(LaTemp);
 
-  client.println("<head>");
-  client.println("<title>Philips S/HRC 502 Street Light</title>");
-  client.println("</head>");
-  client.println("<body style=\"background-color: #111111\" position=\"center\">");
-  client.println("<center class=\"Controller\">");
-  client.println("<img class=\"logo\" src=\"https://i.ibb.co/0qq449c/title.png\" alt=\"\" height=\"200px\" Style =\"margin-left: 36px;\">");
-  if (Status == 1) {
-    Blue();
-    client.println("<ul><a href=\"/OFF\"\"><form class=\"OFF\"><img src=\"https://i.ibb.co/JcV8df8/OFFPressed.png\" alt=\"\" height=\"80px\" border=\"none\"></button></a></ul>");
-  } else {
-    client.println("<ul><a href=\"/OFF\"\"><form class=\"OFF\"><img src=\"https://i.ibb.co/6H29kTh/OFF.png\" alt=\"\" height=\"80px\" border=\"none\"></button></a></ul>");
-  } if (Status == 2) {
-    Yellow();
-    client.println("<ul><a href=\"/18Watt\"\"><form class=\"18Watt\"><img src=\"https://i.ibb.co/HqH6KhM/18-WPressed.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    client.println("<ul><a href=\"/18Watt\"\"><form class=\"18Watt\"><img src=\"https://i.ibb.co/mRZCx3x/18W.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 3) {
-    Yellow();
-    client.println("<ul><a href=\"/36Watt\"\"><form class=\"36Watt\"><img src=\"https://i.ibb.co/rHk9mVJ/36-WPressed.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    client.println("<ul><a href=\"/36Watt\"\"><form class=\"36Watt\"><img src=\"https://i.ibb.co/cT3SL6d/36W.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 4) {
-    Yellow();
-    client.println("<ul><a href=\"/54Watt\"\"><form class=\"54Watt\"><img src=\"https://i.ibb.co/kcdy2ks/54-WPressed.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    Yellow();
-    client.println("<ul><a href=\"/54Watt\"\"><form class=\"54Watt\"><img src=\"https://i.ibb.co/QPtzXPz/54W.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 5) {
-    Yellow();
-    client.println("<ul><a href=\"/72Watt\"\"><form class=\"72Watt\"><img src=\"https://i.ibb.co/rmmMnKK/72-WPressed.png\"alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    Yellow();
-    client.println("<ul><a href=\"/72Watt\"\"><form class=\"72Watt\"><img src=\"https://i.ibb.co/Y0Mp2Gk/72W.png\"alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 6) {
-    Yellow();
-    client.println("<ul><a href=\"/90Watt\"\"><form class=\"90Watt\"><img src=\"https://i.ibb.co/dcN0zRC/90-WPressed.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    client.println("<ul><a href=\"/90Watt\"\"><form class=\"90Watt\"><img src=\"https://i.ibb.co/DMDHjk3/90W.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 7) {
-    Yellow();
-    client.println("<ul><a href=\"/108Watt\"\"><form class=\"108Watt\"><img src=\"https://i.ibb.co/Q6ZgPbs/108-WPressed.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    client.println("<ul><a href=\"/108Watt\"\"><form class=\"108Watt\"><img src=\"https://i.ibb.co/Xp8bcyH/108W.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 8) {
-    Yellow();
-    client.println("<ul><a href=\"/126Watt\"\"><form class=\"126Watt\"><img src=\"https://i.ibb.co/H7s3yt0/126-WPressed.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    client.println("<ul><a href=\"/126Watt\"\"><form class=\"126Watt\"><img src=\"https://i.ibb.co/fMX2QHd/126W.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 9) {
-    White();
-    client.println("<ul><a href=\"/162Watt\"\"><form class=\"162Watt\"><img src=\"https://i.ibb.co/PFw8FwH/162-WPressed.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } else {
-    client.println("<ul><a href=\"/162Watt\"\"><form class=\"162Watt\"><img src=\"https://i.ibb.co/Z1TpgV9/162W.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 10) {
-    Green();
-    client.println("<ul><a href=\"/Photoresistor\"\"><form class=\"Photoresistor\"><img src=\"https://i.ibb.co/k0g0cQP/Photocell-Activated.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-    Photoresistor();
-    client.println("<script>");
-    client.println("function autoRefresh() {");
-    client.println("window.location = window.location.href;");
-    client.println("}");
-    client.println("setInterval('autoRefresh()', 900);");
-    client.println("</script>");
-  } else {
-    client.println("<ul><a href=\"/Photoresistor\"\"><form class=\"Photoresistor\"><img src=\"https://i.ibb.co/VmxgZJQ/Photocell.png\" alt=\"\" height=\"80px\"></button></a></ul>");
-  } if (Status == 11) {
-    Cyan();
-    client.println("<ul><a href=\"/Auto\"\"><form class=\"Auto\"><img src=\"https://i.ibb.co/2FCZLfw/Auto-Pressed.png\" alt=\"\" height=\"80px\"></form></a></ul>");
-    Auto();
-    client.println("<script>");
-    client.println("function autoRefresh() {");
-    client.println("window.location = window.location.href;");
-    client.println("}");
-    client.println("setInterval('autoRefresh()', 900);");
-    client.println("</script>");
-  } else {
-    client.println("<ul><a href=\"/Auto\"\"><form class=\"Auto\"><img src=\"https://i.ibb.co/TcZHv0h/Auto.png\" alt=\"\" height=\"80px\"></form></a></ul>");
-  } client.println("<img class=\"logo\" src=\"https://i.ibb.co/GHFqKts/name.png\" alt=\"\" height=\"150px\" Style =\"margin-left: 36px;\">");
-  client.println("</center>");
-  client.println("</body>");
-  client.println("</html>");
+        float ballastTemp = 0.0f;
+        float lampTemp = 0.0f;
 
+        if (TEMP_ADC_100C != TEMP_ADC_0C) {
+          ballastTemp = (float)(ballastRaw - TEMP_ADC_0C) * 100.0f / (float)(TEMP_ADC_100C - TEMP_ADC_0C);
+          lampTemp = (float)(lampRaw - TEMP_ADC_0C) * 100.0f / (float)(TEMP_ADC_100C - TEMP_ADC_0C);
+        }
 
-  delay(1);
-  Serial.println("Client disonnected");
+        time_t now = time(nullptr);
+        struct tm* p_tm = localtime(&now);
+        char timeBuffer[16] = "00:00:00";
+
+        if (p_tm) strftime(timeBuffer, sizeof(timeBuffer), "%H:%M:%S", p_tm);
+
+        client.println("HTTP/1.1 200 OK");
+        client.println("Content-Type: application/json");
+        client.println("Cache-Control: no-cache");
+        client.println("Access-Control-Allow-Origin: *");
+        client.println();
+        client.print("{\"status\":"); client.print(Status);
+        client.print(",\"lampState\":"); client.print(lampState);
+        client.print(",\"photostate\":"); client.print(Photostate);
+        client.print(",\"ignState\":"); client.print(ignState);
+        client.print(",\"limit\":"); client.print(limit);
+        client.print(",\"ballastTemp\":"); client.print(ballastTemp, 1);
+        client.print(",\"lampTemp\":"); client.print(lampTemp, 1);
+        client.print(",\"ballastRaw\":"); client.print(ballastRaw);
+        client.print(",\"lampRaw\":"); client.print(lampRaw);
+        client.print(",\"time\":\""); client.print(timeBuffer);
+        client.println("\"}");
+
+        client.stop();
+        return; 
+      }
+
+      //------------------HTML Page Creation---------------------//
+      client.println("HTTP/1.1 200 OK");
+      client.println("Content-Type: text/html; charset=UTF-8");
+      client.println("Cache-Control: no-cache");
+      client.println("Connection: close");
+      client.println();
+      client.print(webpage);
+      client.stop();
+    }
   }
 }
-///////////////////////////////////////////////////////////////////MANUAL //////////////////////////////////////////////////////////////////////
 
-void SHUT()   {                            // OFF
+// --------------------------- MANUAL --------------------------- //
+
+void SHUT() { // OFF
   Wattage = "OFF";
-  digitalWrite(one, nOFF);
-  digitalWrite(two, OFF);
-  digitalWrite(three, OFF);
-  digitalWrite(four, OFF);
-  digitalWrite(five, OFF);
-  digitalWrite(ignPin, nOFF);
+  digitalWrite(one, nOFF); digitalWrite(two, OFF); digitalWrite(three, OFF); digitalWrite(four, OFF); digitalWrite(five, OFF); digitalWrite(ignPin, nOFF);
   Serial.println(Wattage);
-
 }
-
-void FIRST()  {                            // 18 Watt
+void FIRST() { // 18 Watt
   Wattage = "18 Watt";
-  digitalWrite(one, nON);
-  digitalWrite(two, OFF);
-  digitalWrite(three, OFF);
-  digitalWrite(four, OFF);
-  digitalWrite(five, OFF);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nON); digitalWrite(two, OFF); digitalWrite(three, OFF); digitalWrite(four, OFF); digitalWrite(five, OFF);
+  Serial.println(Wattage); Ignitor();
 }
-void SECOND() {                            // 36 Watt
+void SECOND() { // 36 Watt
   Wattage = "36 Watt";
-  digitalWrite(one, nOFF);
-  digitalWrite(two, ON);
-  digitalWrite(three, OFF);
-  digitalWrite(four, OFF);
-  digitalWrite(five, OFF);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nOFF); digitalWrite(two, ON); digitalWrite(three, OFF); digitalWrite(four, OFF); digitalWrite(five, OFF);
+  Serial.println(Wattage); Ignitor();
 }
-void THIRD()  {                            // 54 Watt
+void THIRD() { // 54 Watt
   Wattage = "54 Watt";
-  digitalWrite(one, nON);
-  digitalWrite(two, ON);
-  digitalWrite(three, OFF);
-  digitalWrite(four, OFF);
-  digitalWrite(five, OFF);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nON); digitalWrite(two, ON); digitalWrite(three, OFF); digitalWrite(four, OFF); digitalWrite(five, OFF);
+  Serial.println(Wattage); Ignitor();
 }
-void FOURTH()  {                           // 72 Watt
+void FOURTH() { // 72 Watt
   Wattage = "72 Watt";
-  digitalWrite(one, nOFF);
-  digitalWrite(two, ON);
-  digitalWrite(three, ON);
-  digitalWrite(four, OFF);
-  digitalWrite(five, OFF);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nOFF); digitalWrite(two, ON); digitalWrite(three, ON); digitalWrite(four, OFF); digitalWrite(five, OFF);
+  Serial.println(Wattage); Ignitor();
 }
-void FIFTH()   {                           // 90 Watt
+void FIFTH() { // 90 Watt
   Wattage = "90 Watt";
-  digitalWrite(one, nON);
-  digitalWrite(two, ON);
-  digitalWrite(three, ON);
-  digitalWrite(four, OFF);
-  digitalWrite(five, OFF);
-  Serial.println(Wattage);
-  Ignitor();
-  
+  digitalWrite(one, nON); digitalWrite(two, ON); digitalWrite(three, ON); digitalWrite(four, OFF); digitalWrite(five, OFF);
+  Serial.println(Wattage); Ignitor();
 }
-void SIXTH()   {                           // 108 Watt
+void SIXTH() { // 108 Watt
   Wattage = "108 Watt";
-  digitalWrite(one, nOFF);
-  digitalWrite(two, ON);
-  digitalWrite(three, ON);
-  digitalWrite(four, ON);
-  digitalWrite(five, OFF);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nOFF); digitalWrite(two, ON); digitalWrite(three, ON); digitalWrite(four, ON); digitalWrite(five, OFF);
+  Serial.println(Wattage); Ignitor();
 }
-void SEVENTH() {                           // 126 Watt
+void SEVENTH() { // 126 Watt
   Wattage = "126 Watt";
-  digitalWrite(one, nON);
-  digitalWrite(two, ON);
-  digitalWrite(three, ON);
-  digitalWrite(four, ON);
-  digitalWrite(five, OFF);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nON); digitalWrite(two, ON); digitalWrite(three, ON); digitalWrite(four, ON); digitalWrite(five, OFF);
+  Serial.println(Wattage); Ignitor();
 }
-void EIGHTH()  {                           // 144 Watt
+void EIGHTH() { // 144 Watt
   Wattage = "144 Watt";
-  digitalWrite(one, nOFF);
-  digitalWrite(two, ON);
-  digitalWrite(three, ON);
-  digitalWrite(four, ON);
-  digitalWrite(five, ON);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nOFF); digitalWrite(two, ON); digitalWrite(three, ON); digitalWrite(four, ON); digitalWrite(five, ON);
+  Serial.println(Wattage); Ignitor();
 }
-void NINTH()   {                           // 162 Watt
+void NINTH() { // 162 Watt
   Wattage = "162 Watt";
-  digitalWrite(one, nON);
-  digitalWrite(two, ON);
-  digitalWrite(three, ON);
-  digitalWrite(four, ON);
-  digitalWrite(five, ON);
-  Serial.println(Wattage);
-  Ignitor();
+  digitalWrite(one, nON); digitalWrite(two, ON); digitalWrite(three, ON); digitalWrite(four, ON); digitalWrite(five, ON);
+  Serial.println(Wattage); Ignitor();
 }
 
-//Indicator Color
-void Red(){
-  analogWrite(red, 90);
-  digitalWrite(green, LOW);
-  digitalWrite(blue, LOW);
-}
+// --------------------------- Indicator Color --------------------------- //
 
-void Yellow(){
-  analogWrite(red, 90);
-  analogWrite(green, 90);
-  digitalWrite(blue, LOW);
-}
+void Red() { digitalWrite(red, HIGH); digitalWrite(green, LOW); digitalWrite(blue, LOW); }
+void Yellow() { digitalWrite(red, HIGH); digitalWrite(green, HIGH); digitalWrite(blue, LOW); }
+void Green() { digitalWrite(red, LOW); digitalWrite(green, HIGH); digitalWrite(blue, LOW); }
+void Cyan() { digitalWrite(red, LOW); digitalWrite(green, HIGH); digitalWrite(blue, HIGH); }
+void Blue() { digitalWrite(red, LOW); digitalWrite(green, LOW); digitalWrite(blue, HIGH); }
+void Magenta() { digitalWrite(red, HIGH); digitalWrite(green, LOW); digitalWrite(blue, HIGH); }
+ void White() { digitalWrite(red, HIGH); digitalWrite(green, HIGH); digitalWrite(blue, HIGH); }
 
-void Green(){
-  digitalWrite(red, LOW);
-  analogWrite(green, 90);
-  digitalWrite(blue, LOW);
-}
-
-void Cyan(){
-  digitalWrite(red, LOW);
-  analogWrite(green, 90);
-  analogWrite(blue, 90);
-}
-
-void Blue(){
-  digitalWrite(red, LOW);
-  digitalWrite(green, LOW);
-  analogWrite(blue, 90);
-}
-
-void Magenta(){
-  analogWrite(red, 90);
-  digitalWrite(green, LOW);
-  analogWrite(blue, 90);
-}
-
-void White(){
-  analogWrite(red, 90);
-  analogWrite(green, 90);
-  analogWrite(blue, 90);
-}
-
-///////////////////////////////////////////////////////////////  Light Sensor  ///////////////////////////////////////////////////////////////////
+// --------------------------- Light Sensor --------------------------- //
 
 void LightSensor() {
   Serial.println("Photoresistor Mode");
   beep = 2;
-   
-  for (i = 0 ; WiFi.status() != WL_CONNECTED; ) {
+
+  static unsigned long previousMillis = 0;
+  const unsigned long interval = 1000;
+
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+
     Photoresistor();
-    delay(DELAY);
   }
-
 }
-///////////////////////////////////////////////////////////////  Automatic  ///////////////////////////////////////////////////////////////////
 
-void Auto() { ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// --------------------------- Automatic --------------------------- //
+
+void Auto() {
   time_t now = time(nullptr);
   struct tm* p_tm = localtime(&now);
 
-  if ((p_tm->tm_hour == 0)) {                           /////////////////////////////////////////////    12 AM
-
-    SEVENTH();
-
-  } else if ((p_tm->tm_hour >= 1) && (p_tm->tm_hour <= 4)) {        /////////////////////////////////////////////    1 AM - 4 AM
-
-    FIFTH();
-
-
-  } else if ((p_tm->tm_hour == 5)) {                     /////////////////////////////////////////////   5 AM
-
-    if ((p_tm->tm_min <= 29)) {                          //05:00:00 - 05:29:59
+  if (p_tm->tm_hour == 0) {                           // 12 AM
+      switch (limit) { 
+        case 4: FOURTH(); break;
+        case 5: FIFTH(); break;
+        case 6: SIXTH(); break;
+        case 7: SEVENTH(); break;
+        case 8: NINTH(); break;
+      }
+  } else if ((p_tm->tm_hour >= 1) && (p_tm->tm_hour <= 4)) {  // 1 AM - 4 AM
+      switch (limit) { 
+        case 4: FOURTH(); break;
+        case 5: case 6: case 7: case 8: FIFTH(); break;
+      }
+  } else if (p_tm->tm_hour == 5) {                     // 5 AM
+    if (p_tm->tm_min <= 29) {                          
       FOURTH();
-
-    } else if ((p_tm->tm_min >= 30)) {                    //05:30:00 - 05:59:59
+    } else if (p_tm->tm_min >= 30) {                    
       THIRD();
     }
-
-  } else if ((p_tm->tm_hour == 6)) {                     /////////////////////////////////////////////   6 AM
-
-    if ((p_tm->tm_min <= 29)) {                          //06:00:00 - 06:29:59
+  } else if (p_tm->tm_hour == 6) {                     // 6 AM
+    if (p_tm->tm_min <= 29) {                          
       FOURTH();
-
-    } else if ((p_tm->tm_min >= 30)) {                    //06:30:00 - 06:59:59
+    } else if (p_tm->tm_min >= 30) {                    
       SHUT();
     }
-  } else if ((p_tm->tm_hour >= 7) && (p_tm->tm_hour <= 16)) {               /////////////////////////////////////////////    7 AM - 4 PM
-
-    SHUT();                                     //07:00:00 - 16:59:59
-
-  } else if ((p_tm->tm_hour == 17)) {                     /////////////////////////////////////////////   5 PM
-
-    if ((p_tm->tm_min <= 29)) {                          //17:00:00 - 17:29:59
+  } else if ((p_tm->tm_hour >= 7) && (p_tm->tm_hour <= 16)) {  // 7 AM - 4 PM
+    SHUT();                                     
+  } else if (p_tm->tm_hour == 17) {                    // 5 PM
+    if (p_tm->tm_min <= 29) {                          
       SHUT();
-
-    } else if ((p_tm->tm_min >= 30)) {                    //17:30:00 - 17:59:59
+    } else if (p_tm->tm_min >= 30) {                    
       THIRD();
     }
-  } else if ((p_tm->tm_hour >= 18) && (p_tm->tm_hour <= 20)) {                     /////////////////////////////////////////////   6 PM - 8 PM
-
+  } else if ((p_tm->tm_hour >= 18) && (p_tm->tm_hour <= 20)) { // 6 PM - 8 PM
     FOURTH();
-
-  } else if ((p_tm->tm_hour >= 21) && (p_tm->tm_hour <= 23)) {                     /////////////////////////////////////////////   9 PM - 11 PM
-
-    NINTH();
-
+  } else if ((p_tm->tm_hour >= 21) && (p_tm->tm_hour <= 23)) { // 9 PM - 11 PM
+      switch (limit) { 
+        case 4: FOURTH(); break;
+        case 5: FIFTH(); break;
+        case 6: case 7: case 8: SIXTH(); break;
+      }
   }
-
 }
 
-
-void Photoresistor() { ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void Photoresistor() {
   int Photores = analogRead(Photo);
-  if (Photores <= A ) {                     // 126 Watt state
-    SEVENTH();
 
-  } else if ( Photores > A + Dif && Photores <= B ) {                   // 90 Watt state
-    FIFTH();
+  Serial.print("Photoresistor: ");
+  Serial.println(Photores);
 
-  } else if (Photores > B + Dif && Photores <= C ) {                   // 54 Watt state
-    THIRD();
-
-  } else if (Photores > C + Dif) {                                      //Off state
+                          
+  if (Photores <= A) {    // Sunny Day
     SHUT();
+  }
 
+  else if (Photores > A + Dif && Photores <= B) {    // Raining
+    THIRD();
+  }
+
+  else if (Photores > B + Dif && Photores <= C) {    // 5.30 PM 
+    switch (limit) {
+      case 4:
+        FOURTH();
+        break;
+
+      case 5:
+      case 6:
+      case 7:
+      case 8:
+        FIFTH();
+        break;
+    }
+  } 
+  else if (Photores > C + Dif) {   // 6 PM
+    switch (limit) {
+      case 4:
+        FOURTH();
+        break;
+
+      case 5:
+        FIFTH();
+        break;
+
+      case 6:
+        SIXTH();
+        break;
+
+      case 7:
+        SEVENTH();
+        break;
+
+      case 8:
+        NINTH();
+        break;
+    }
   }
 }
 
-void Ignitor() { ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
- if (ignState == 1){
+
+void Ignitor() {
+ if (ignState == 1) {
     digitalWrite(ignPin, nON);
- }else if (ignState == 0){ 
+ } else if (ignState == 0) { 
     digitalWrite(ignPin, nOFF);
  }    
 }
 
-void handleNewMessages(int numNewMessages)
-{
+void handleNewMessages(int numNewMessages) {
   WiFiClient client = server.available();
   Serial.print("handleNewMessages ");
 
-  for (int i = 0; i < numNewMessages; i++)
-  {
+  for (int i = 0; i < numNewMessages; i++) {
     String text = bot.messages[i].text;
 
-
-    if (text == "/AutoReset")
-    {
-      if(Photostate == 1){  
+    if (text == "/AutoReset") {
+      if (Photostate == 1) {  
         bot.sendMessage(CHAT_ID, "Street Light is automaticaly reset", "");
         Photostate = 0;
         EEPROM.write(1,0);
         EEPROM.commit();
-      }else if(Photostate == 0){  
+      } else if (Photostate == 0) {  
         bot.sendMessage(CHAT_ID, "Street Light is always on static", "");
         Photostate = 1;
         EEPROM.write(1,1);
@@ -720,203 +675,94 @@ void handleNewMessages(int numNewMessages)
       }     
     }
 
-    if (text == "/Ignitor")
-    {
-      if(ignState == 1){  
+    if (text == "/Ignitor") {
+      if (ignState == 1) {  
         bot.sendMessage(CHAT_ID, "Ignitor is disabled", "");
         ignState = 0;
         EEPROM.write(3,0);
         EEPROM.commit();
-      }else if(ignState == 0){  
+      } else if (ignState == 0) {  
         bot.sendMessage(CHAT_ID, "Ignitor is enabled", "");
         ignState = 1;
         EEPROM.write(3,1);
         EEPROM.commit();
       }
-      switch (Status) { //Static state refresh
-        case 2:
-          FIRST();
-          break;
-        case 3:
-          SECOND();
-          break;
-        case 4:
-          THIRD();
-          break;
-        case 5:
-          FOURTH();
-          break;
-        case 6:
-          FIFTH();
-          break;
-        case 7:
-          SIXTH();
-          break;
-        case 8:
-          SEVENTH();
-          break;
-        case 9:
-          NINTH();
-          break;
+      switch (Status) { 
+        case 2: FIRST(); break;
+        case 3: SECOND(); break;
+        case 4: THIRD(); break;
+        case 5: FOURTH(); break;
+        case 6: FIFTH(); break;
+        case 7: SIXTH(); break;
+        case 8: SEVENTH(); break;
+        case 9: NINTH(); break;
       }  
     }
 
-    if (text == "/OFF")
-    {
+    if (text == "/OFF") {
       bot.sendMessage(CHAT_ID, "Street Light is turned off", "");
-      String request = "/OFF";
-      SHUT();
-      EEPROM.write(0,0);
-      EEPROM.commit(); 
-      Blue();
-      Status = 1;
+      SHUT(); EEPROM.write(0,0); EEPROM.commit(); Blue(); Status = 1;
     }
 
-    if (text == "/18Watt")
-    {
+    if (text == "/18Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 18 Watt", "");
-      String request = "/18Watt";
-      FIRST();
-      EEPROM.write(0,0);
-      EEPROM.commit(); 
-      Yellow();
-      Status = 2;
+      FIRST(); EEPROM.write(0,0); EEPROM.commit(); Yellow(); Status = 2;
     }
-    if (text == "/36Watt")
-    {
+    if (text == "/36Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 36 Watt", "");
-      String request = "/36Watt";
-      SECOND();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      Yellow();
-      Status = 3;
+      SECOND(); EEPROM.write(0,0); EEPROM.commit(); Yellow(); Status = 3;
     }
-    if (text == "/54Watt")
-    {
+    if (text == "/54Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 54 Watt", "");
-      String request = "/54Watt";
-      THIRD();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      Yellow();
-      Status = 4;
+      THIRD(); EEPROM.write(0,0); EEPROM.commit(); Yellow(); Status = 4;
     }
-    if (text == "/72Watt")
-    {
+    if (text == "/72Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 72 Watt", "");
-      String request = "/72Watt";
-      FOURTH();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      Yellow();
-      Status = 5;
+      FOURTH(); EEPROM.write(0,0); EEPROM.commit(); Yellow(); Status = 5;
     }
-    if (text == "/90Watt")
-    {
+    if (text == "/90Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 90 Watt", "");
-      String request = "/90Watt";
-      FIFTH();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      Yellow();
-      Status = 6;
+      FIFTH(); EEPROM.write(0,0); EEPROM.commit(); Yellow(); Status = 6;
     }
-    if (text == "/108Watt")
-    {
+    if (text == "/108Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 108 Watt", "");
-      String request = "/108Watt";
-      SIXTH();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      Yellow();
-      Status = 7;
+      SIXTH(); EEPROM.write(0,0); EEPROM.commit(); Yellow(); Status = 7;
     }
-    if (text == "/126Watt")
-    {
+    if (text == "/126Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 126 Watt", "");
-      String request = "/108Watt";
-      SEVENTH();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      Yellow();
-      Status = 8;
+      SEVENTH(); EEPROM.write(0,0); EEPROM.commit(); Yellow(); Status = 8;
     }
-    if (text == "/162Watt")
-    {
+    if (text == "/162Watt") {
       bot.sendMessage(CHAT_ID, "Current power of Street Light is 162 Watt", "");
-      String request = "/108Watt";
-      NINTH();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      White();
-      Status = 9;
+      NINTH(); EEPROM.write(0,0); EEPROM.commit(); White(); Status = 9;
     }
-    if (text == "/Photoresistor")
-    {
+    if (text == "/Photoresistor") {
       bot.sendMessage(CHAT_ID, "Current state of Street Light is in Photoresistor mode", "");
-      Photoresistor();
-      EEPROM.write(0,0);
-      EEPROM.commit();
-      Green();
-      Status = 10;
-      String request = "/Photoresistor";
-
+      LightSensor(); EEPROM.write(0,0); EEPROM.commit(); Green(); Status = 10;
     }
-    if (text == "/Auto")
-    {
+    if (text == "/Auto") {
       bot.sendMessage(CHAT_ID, "Current state of Street Light is in Automatic mode", "");
-      Auto();
-      EEPROM.write(0,1);
-      EEPROM.commit();
-      Cyan();
-      Status = 11;
-      String request = "/Auto";
-
+      Auto(); EEPROM.write(0,1); EEPROM.commit(); Cyan(); Status = 11;
     }
     if (text.equalsIgnoreCase("/status")) {
       switch (Status) {
-        case 1:
-          bot.sendMessage(CHAT_ID, "Street Light is turned off", "");
-          break;
-        case 2:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 18 Watt", "");
-          break;
-        case 3:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 36 Watt", "");
-          break;
-        case 4:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 54 Watt", "");
-          break;
-        case 5:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 72 Watt", "");
-          break;
-        case 6:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 90 Watt", "");
-          break;
-        case 7:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 108 Watt", "");
-          break;
-        case 8:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 126 Watt", "");
-          break;
-        case 9:
-          bot.sendMessage(CHAT_ID, "Current power of Street Light is 162 Watt", "");
-          break;
-        case 10:
-          bot.sendMessage(CHAT_ID, "Current state of Street Light is in Photoresistor mode: " + Wattage, "");
-          break;
-        case 11:
-          bot.sendMessage(CHAT_ID, "Current state of Street Light is in Automatic mode: " + Wattage, "");
-          break;
-        default:
-          bot.sendMessage(CHAT_ID, "Street Light is turned off", "");
+        case 1: bot.sendMessage(CHAT_ID, "Street Light is turned off", ""); break;
+        case 2: bot.sendMessage(CHAT_ID, "Current power of Street Light is 18 Watt", ""); break;
+        case 3: bot.sendMessage(CHAT_ID, "Current power of Street Light is 36 Watt", ""); break;
+        case 4: bot.sendMessage(CHAT_ID, "Current power of Street Light is 54 Watt", ""); break;
+        case 5: bot.sendMessage(CHAT_ID, "Current power of Street Light is 72 Watt", ""); break;
+        case 6: bot.sendMessage(CHAT_ID, "Current power of Street Light is 90 Watt", ""); break;
+        case 7: bot.sendMessage(CHAT_ID, "Current power of Street Light is 108 Watt", ""); break;
+        case 8: bot.sendMessage(CHAT_ID, "Current power of Street Light is 126 Watt", ""); break;
+        case 9: bot.sendMessage(CHAT_ID, "Current power of Street Light is 162 Watt", ""); break;
+        case 10: bot.sendMessage(CHAT_ID, "Current state of Street Light is in Photoresistor mode: " + Wattage, ""); break;
+        case 11: bot.sendMessage(CHAT_ID, "Current state of Street Light is in Automatic mode: " + Wattage, ""); break;
+        default: bot.sendMessage(CHAT_ID, "Street Light is turned off", "");
       }
     }
-    if (text.equalsIgnoreCase("/start"))
-  {
-    String welcome = "Welcome to 1980 Philips HID Street Light HRC 502.\n";
-    Serial.println(WiFi.localIP().toString());
+    if (text.equalsIgnoreCase("/start")) {
+      String welcome = "Welcome to 1980 Philips HID Street Light HRC 502.\n";
+      Serial.println(WiFi.localIP().toString());
       welcome += "You can use browser to control the street light by using this IP: " + WiFi.localIP().toString() + ".\n";
       welcome += "Or use this command to control directly:\n";
       welcome += "/OFF : to turn off Lamp.\n";
@@ -936,4 +782,5 @@ void handleNewMessages(int numNewMessages)
     }
   }
 }
-// By Bahyyazid Ramadhan Hendarto - October 2019 & December 2023
+
+// 2019 - 2026 By Bahyyazid Ramadhan Hendarto - The Beloved Project
