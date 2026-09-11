@@ -23,7 +23,7 @@ September 6 2026:
 ESP32 migration with additional temperature sensor and webpage refurbish.
 
 September 19 2026:
-Dynamic WiFi and Telegran Bot Credentials.
+Dynamic WiFi and Telegram Bot Credentials.
 
 
 CAUTION!!
