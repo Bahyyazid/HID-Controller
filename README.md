@@ -17,8 +17,13 @@ For the large version, I'm going to try on Philips HRC 511 in the future.
 -Started from December 2019 by Bahyyazid R H-
 
 Update on May 3 2026:
-
 Added an additional relay for Ignitor Deactivation.
+
+September 6 2026:
+ESP32 migration with additional temperature sensor and webpage refurbish.
+
+September 19 2026:
+Dynamic WiFi and Telegran Bot Credentials.
 
 
 CAUTION!!
